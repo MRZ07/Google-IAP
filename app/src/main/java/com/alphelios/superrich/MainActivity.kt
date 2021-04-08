@@ -24,10 +24,9 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
         setContentView(binding.root)
 
         iapConnector = IapConnector(this, "License Key")
-            .setNonConsumableIds(listOf("no_ads", "super_sword"))
-            .setConsumableIds(listOf("100_coins", "200_coins"))
+            .setNonConsumableIds("no_ads", "super_sword")
+            .setConsumableIds("100_coins", "200_coins")
             .autoAcknowledge()
-            .autoConsume()
             .connect()
 
         iapConnector.setBillingEventListener(object : BillingEventListener {

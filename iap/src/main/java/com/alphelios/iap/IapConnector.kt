@@ -33,7 +33,6 @@ class IapConnector(context: Context, private val base64Key: String) {
     private var subIds: List<String>? = null
     private var consumableIds: List<String>? = null
     private var shouldAutoAcknowledge: Boolean = false
-    private var shouldAutoConsume: Boolean = false
 
     private var connected = false
     private var checkedForPurchasesAtStart = false
@@ -88,14 +87,6 @@ class IapConnector(context: Context, private val base64Key: String) {
      */
     fun autoAcknowledge(): IapConnector {
         shouldAutoAcknowledge = true
-        return this
-    }
-
-    /**
-     * Iap will auto consume consumable purchases
-     */
-    fun autoConsume(): IapConnector {
-        shouldAutoConsume = true
         return this
     }
 
@@ -362,15 +353,16 @@ class IapConnector(context: Context, private val base64Key: String) {
             validPurchases.forEach {
 
                 // Auto Consume
-                if (shouldAutoConsume) {
+                if (it.skuProductType == CONSUMABLE)
                     consume(it)
-                }
 
                 // Auto Acknowledge
                 if (shouldAutoAcknowledge) {
-                    val wasConsumedBefore = it.skuProductType == CONSUMABLE && shouldAutoConsume
-                    if (!wasConsumedBefore)
-                        acknowledgePurchase(it)
+                    when (it.skuProductType) {
+                        CONSUMABLE -> {
+                        }
+                        NON_CONSUMABLE, SUBSCRIPTION -> acknowledgePurchase(it)
+                    }
                 }
             }
         }
@@ -380,31 +372,28 @@ class IapConnector(context: Context, private val base64Key: String) {
     /**
      * Consume consumable purchases
      * */
-    fun consume(purchaseInfo: PurchaseInfo) {
+    private fun consume(purchaseInfo: PurchaseInfo) {
 
-        if (checkBeforeUserInteraction(purchaseInfo.skuId)) {
+        when (purchaseInfo.skuProductType) {
+            NON_CONSUMABLE, SUBSCRIPTION -> throw IllegalArgumentException("Only consumable products can be consumed")
+            CONSUMABLE -> {
+                purchaseInfo.run {
+                    billingClient.consumeAsync(
+                        ConsumeParams.newBuilder()
+                            .setPurchaseToken(purchase.purchaseToken).build()
+                    ) { billingResult, purchaseToken ->
+                        when (billingResult.responseCode) {
+                            OK -> {
+                                purchasedProductsList.remove(purchaseInfo)
+                                billingEventListener?.onPurchaseConsumed(this)
+                            }
+                            else -> {
+                                Log.d(tag, "Handling consumables : Error during consumption attempt -> ${billingResult.debugMessage}")
 
-            when (purchaseInfo.skuProductType) {
-                NON_CONSUMABLE, SUBSCRIPTION -> throw IllegalArgumentException("Only consumable products can be consumed")
-                CONSUMABLE -> {
-                    purchaseInfo.run {
-                        billingClient.consumeAsync(
-                            ConsumeParams.newBuilder()
-                                .setPurchaseToken(purchase.purchaseToken).build()
-                        ) { billingResult, purchaseToken ->
-                            when (billingResult.responseCode) {
-                                OK -> {
-                                    purchasedProductsList.remove(purchaseInfo)
-                                    billingEventListener?.onPurchaseConsumed(this)
-                                }
-                                else -> {
-                                    Log.d(tag, "Handling consumables : Error during consumption attempt -> ${billingResult.debugMessage}")
-
-                                    billingEventListener?.onError(
-                                        this@IapConnector,
-                                        BillingResponse(ErrorType.CONSUME_ERROR, billingResult)
-                                    )
-                                }
+                                billingEventListener?.onError(
+                                    this@IapConnector,
+                                    BillingResponse(ErrorType.CONSUME_ERROR, billingResult)
+                                )
                             }
                         }
                     }
